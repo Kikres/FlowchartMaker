@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import List, cast
 from PySide6 import QtCore, QtWidgets, QtGui
 
+
 @dataclass
 class ShapeData:
     shape_type: str
@@ -14,17 +15,44 @@ class ShapeData:
     height: int
     text: str
 
+
 @dataclass
 class ArrowData:
     start_shape_index: int
     start_node_index: int
     end_shape_index: int
     end_node_index: int
-    
+
+
 @dataclass
 class DiagramData:
     shapes: List[ShapeData]
     arrows: List[ArrowData]
+
+
+class Serializer:
+    @staticmethod
+    def save_to_file(diagram_data: DiagramData, file_path: str) -> None:
+        try:
+            with open(file_path, "w") as file:
+                json.dump(diagram_data.__dict__, file, default=lambda o: o.__dict__, indent=4)
+            print(f"Flowchart saved to {file_path}")
+        except IOError as e:
+            print(f"Error saving file: {e}")
+
+    @staticmethod
+    def load_from_file(file_path: str) -> DiagramData:
+        try:
+            with open(file_path, "r") as file:
+                data = json.load(file)
+            return DiagramData(
+                shapes=[ShapeData(**shape_data) for shape_data in data['shapes']],
+                arrows=[ArrowData(**arrow_data) for arrow_data in data['arrows']]
+            )
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"Error loading file: {e}")
+            return None
+
 
 class FlowchartEditor:
     def __init__(self):
@@ -37,37 +65,24 @@ class FlowchartEditor:
         self.window.show()
 
     def handle_save(self, diagram_data: DiagramData):
-        # Ask the user for the save file path
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.window, "Save Flowchart", "", "JSON Files (*.json);;All Files (*)")
-
         if file_path:
-            with open(file_path, "w") as file:
-                json.dump(diagram_data.__dict__, file, default=lambda o: o.__dict__, indent=4)
-            print(f"Flowchart saved to {file_path}")
+            Serializer.save_to_file(diagram_data, file_path)
 
     def handle_load(self):
-        # Ask the user for the load file path
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self.window, "Load Flowchart", "", "JSON Files (*.json);;All Files (*)")
-
         if file_path:
-            with open(file_path, "r") as file:
-                data = json.load(file)
+            return Serializer.load_from_file(file_path)
+        return None
 
-            diagram_data = DiagramData(
-                shapes=[ShapeData(**shape_data) for shape_data in data['shapes']],
-                arrows=[ArrowData(**arrow_data) for arrow_data in data['arrows']]
-            )
-            print(f"Flowchart loaded from {file_path}")
-            return diagram_data
-        return None  # Return None if no file is selected
 
 class Window(QtWidgets.QMainWindow):
     def __init__(self, editor: FlowchartEditor):
         super().__init__()
         self.editor = editor
         self.setWindowTitle("Flowchart Creator")
-        self.setGeometry(100, 100, 1000, 600)  # Initialize small window, user can resize themselves
-        
+        self.setGeometry(100, 100, 1000, 600)
+
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
         layout = QtWidgets.QHBoxLayout(central_widget)
@@ -99,7 +114,9 @@ class Window(QtWidgets.QMainWindow):
 
     def handle_load(self):
         diagram_data = self.editor.handle_load()
-        self.flowchart_area.load_from_diagram_data(diagram_data)
+        if diagram_data:
+            self.flowchart_area.load_from_diagram_data(diagram_data)
+
 
 class Toolbar(QtWidgets.QWidget):
     def __init__(self, parent: Window):
@@ -112,9 +129,7 @@ class Toolbar(QtWidgets.QWidget):
         btn_save = QtWidgets.QPushButton("Save", self)
         btn_load = QtWidgets.QPushButton("Load", self)
 
-        # Cast parent to Window type for type checking
         window_parent = cast(Window, self.parent())
-
         btn_add_process.clicked.connect(window_parent.handle_add_process)
         btn_add_decision.clicked.connect(window_parent.handle_add_decision)
         btn_add_terminator.clicked.connect(window_parent.handle_add_terminator)
