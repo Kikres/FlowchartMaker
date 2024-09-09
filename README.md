@@ -1,4 +1,4 @@
-# Flowchart Creator
+# FlowchartMaker
 
 A desktop application for creating and managing flowcharts with common flowchart elements such as processes, decisions, terminators, and input/output symbols. You can connect these elements with arrows and save or load your flowcharts as JSON files.
 
