@@ -19,15 +19,15 @@ class FlowchartEditor:
         self.__event_bus.on("app:initialize", self.handle_initialize)
 
     def handle_initialize(self, arguments=None):
-        self.window = FlowchartWindow()
+        self.window = Window()
         self.window.setWindowTitle("Flowchart Proof of Concept")
         self.window.show()
         
-class FlowchartWindow(QMainWindow):
+class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Flowchart Creator")
-        self.setGeometry(100, 100, 1000, 600)  # Adjust window size as needed
+        self.setGeometry(100, 100, 1000, 600) # Initial window size
 
         # Set the main layout
         central_widget = QWidget()
@@ -35,7 +35,7 @@ class FlowchartWindow(QMainWindow):
         layout = QHBoxLayout(central_widget)
 
         # Create the flowchart area and toolbar
-        self.flowchart_area = FlowchartArea(self)
+        self.flowchart_area = Area(self)
         self.toolbar = Toolbar(self)
 
         # Add flowchart area to the left and toolbar to the right
@@ -43,30 +43,34 @@ class FlowchartWindow(QMainWindow):
         layout.addWidget(self.toolbar, stretch=1)
         
         # Methods to add shapes to the flowchart area
-    def add_process(self):
+    def handle_add_process(self):
         new_shape = Process(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def add_decision(self):
+    def handle_add_decision(self):
         new_shape = Decision(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def add_terminator(self):
+    def handle_add_terminator(self):
         new_shape = Terminator(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def add_io(self):
+    def handle_add_io(self):
         new_shape = IO(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
         
+    def handle_load(self):
+        print("Load event sent to bus")
+        pass
+        
+    def handle_save(self):
+        print("Save event sent to bus")
+        pass
+        
 class Toolbar(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent: Window):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-
-        # Label for toolbar
-        label = QLabel("Toolbar", self)
-        layout.addWidget(label)
 
         # Add buttons for shapes
         btn_add_process = QPushButton("Add Process", self)
@@ -80,27 +84,22 @@ class Toolbar(QWidget):
         layout.addWidget(btn_add_io)
 
         # Connect buttons to create shapes in the flowchart area via the FlowchartWindow
-        btn_add_process.clicked.connect(self.parent().add_process)
-        btn_add_decision.clicked.connect(self.parent().add_decision)
-        btn_add_terminator.clicked.connect(self.parent().add_terminator)
-        btn_add_io.clicked.connect(self.parent().add_io)
+        btn_add_process.clicked.connect(self.parent().handle_add_process)
+        btn_add_decision.clicked.connect(self.parent().handle_add_decision)
+        btn_add_terminator.clicked.connect(self.parent().handle_add_terminator)
+        btn_add_io.clicked.connect(self.parent().handle_add_io)
 
         # Save and Load buttons
         btn_save = QPushButton("Save", self)
         btn_load = QPushButton("Load", self)
+        
+        btn_save.clicked.connect(self.parent().handle_save)
+        btn_load.clicked.connect(self.parent().handle_load)
 
         layout.addWidget(btn_save)
         layout.addWidget(btn_load)
-        
-    def save(self):
-        # Placeholder for save functionality
-        print("Save button clicked")
 
-    def load(self):
-        # Placeholder for load functionality
-        print("Load button clicked")
-
-class FlowchartArea(QWidget):
+class Area(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.arrow_start = None  # Starting point for the arrow
@@ -123,15 +122,19 @@ class FlowchartArea(QWidget):
         if self.active_shape:
             mouse_pos = event.pos()
             
-            # Handle deletion of shape
+            # Handle deletion of shape, ensuring all arrows connected to the shape are deleted
             if self.active_shape.on_cross(mouse_pos):
                 self.shapes.remove(self.active_shape)
                 self.active_shape.deleteLater()
-                for arrow in self.arrows:
-                    for node in self.active_shape.nodes:
-                        if arrow.contains_node(node):
-                            arrow.deleteLater()
-                            self.arrows.remove(arrow)
+
+                # Collect arrows to delete
+                arrows_to_delete = [arrow for arrow in self.arrows if any(arrow.contains_node(node) for node in self.active_shape.nodes)]
+
+                # Delete all arrows connected to the shape
+                for arrow in arrows_to_delete:
+                    arrow.deleteLater()
+                    self.arrows.remove(arrow)
+
                 self.active_shape = None
                 return
 
@@ -227,12 +230,12 @@ class Node:
         return self.qpoint + QPoint(self.parent.width() // 2, self.parent.height() // 2) + self.parent.pos()
 
 class Shape(QWidget):
-    def __init__(self, parent: FlowchartWindow, width, height, node_positions: List[QPoint], node_radius: int):
+    def __init__(self, parent: Window, width, height, node_positions: List[QPoint], node_radius: int):
         super().__init__(parent)
         self.locked = True
         self.active_node = None
         self.nodes = []
-        self.text = ""  # Variable to store the text for the shape
+        self.text = "enter text"  # Variable to store the text for the shape
         self.node_radius = node_radius
         self.show_cross = False  # Flag to show or hide the cross
         self.cross_rect = QRect(1, 1, 10, 10)  # Define the cross area as a QRect
@@ -381,12 +384,12 @@ class IO(Shape):
     def __init__(self, parent):
         width = 130
         height = 80
-        # Adjust node positions to conform to the parallelogram
+        # Adjust node positions to the middle of each side of the parallelogram
         node_positions = [
-            QPoint(-55, -40),  # Top left corner
-            QPoint(75, -40),   # Top right corner
-            QPoint(65, 40),    # Bottom right corner
-            QPoint(-65, 40)    # Bottom left corner
+            QPoint(0, -40),   # Top side center
+            QPoint(60, 0),     # Right side center
+            QPoint(0, 40),    # Bottom side center
+            QPoint(-60, 0)     # Left side center
         ]
         node_radius = 8
         super().__init__(parent, width, height, node_positions, node_radius)
