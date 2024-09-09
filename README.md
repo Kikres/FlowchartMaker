@@ -1,6 +1,6 @@
 # FlowchartMaker
 
-A desktop application for creating and managing flowcharts with common flowchart elements such as processes, decisions, terminators, and input/output symbols. You can connect these elements with arrows and save or load your flowcharts as JSON files.
+A simple desktop application for creating and managing flowcharts with common flowchart elements such as processes, decisions, terminators, and input/output symbols. You can connect these elements with arrows and save or load your flowcharts as JSON files. Is missing common functionality but as a example project in python it fills it's purpose as a demo.
 
 ## Features
 
