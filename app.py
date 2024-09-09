@@ -2,7 +2,7 @@ import sys
 import json
 import math
 from dataclasses import dataclass
-from typing import List
+from typing import List, cast
 from PySide6 import QtCore, QtWidgets, QtGui
 
 @dataclass
@@ -45,7 +45,7 @@ class FlowchartEditor:
                 json.dump(diagram_data.__dict__, file, default=lambda o: o.__dict__, indent=4)
             print(f"Flowchart saved to {file_path}")
 
-    def handle_load(self) -> DiagramData:
+    def handle_load(self):
         # Ask the user for the load file path
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self.window, "Load Flowchart", "", "JSON Files (*.json);;All Files (*)")
 
@@ -64,20 +64,16 @@ class FlowchartEditor:
 class Window(QtWidgets.QMainWindow):
     def __init__(self, editor: FlowchartEditor):
         super().__init__()
-        self.editor = editor  # Store reference to FlowchartEditor
+        self.editor = editor
         self.setWindowTitle("Flowchart Creator")
-        self.setGeometry(100, 100, 1000, 600)  # Initial window size
-
-        # Set the main layout
+        self.setGeometry(100, 100, 1000, 600)  # Initialize small window, user can resize themselves
+        
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
         layout = QtWidgets.QHBoxLayout(central_widget)
 
-        # Create the flowchart area and toolbar
         self.flowchart_area = Area(self)
         self.toolbar = Toolbar(self)
-
-        # Add flowchart area to the left and toolbar to the right
         layout.addWidget(self.flowchart_area, stretch=5)
         layout.addWidget(self.toolbar, stretch=1)
 
@@ -109,50 +105,61 @@ class Toolbar(QtWidgets.QWidget):
     def __init__(self, parent: Window):
         super().__init__(parent)
         layout = QtWidgets.QVBoxLayout(self)
-
-        # Add buttons for shapes
         btn_add_process = QtWidgets.QPushButton("Add Process", self)
         btn_add_decision = QtWidgets.QPushButton("Add Decision", self)
         btn_add_terminator = QtWidgets.QPushButton("Add Terminator", self)
         btn_add_io = QtWidgets.QPushButton("Add I/O", self)
+        btn_save = QtWidgets.QPushButton("Save", self)
+        btn_load = QtWidgets.QPushButton("Load", self)
+
+        # Cast parent to Window type for type checking
+        window_parent = cast(Window, self.parent())
+
+        btn_add_process.clicked.connect(window_parent.handle_add_process)
+        btn_add_decision.clicked.connect(window_parent.handle_add_decision)
+        btn_add_terminator.clicked.connect(window_parent.handle_add_terminator)
+        btn_add_io.clicked.connect(window_parent.handle_add_io)
+        btn_save.clicked.connect(window_parent.handle_save)
+        btn_load.clicked.connect(window_parent.handle_load)
 
         layout.addWidget(btn_add_process)
         layout.addWidget(btn_add_decision)
         layout.addWidget(btn_add_terminator)
         layout.addWidget(btn_add_io)
-
-        # Connect buttons to create shapes in the flowchart area via the FlowchartWindow
-        btn_add_process.clicked.connect(self.parent().handle_add_process)
-        btn_add_decision.clicked.connect(self.parent().handle_add_decision)
-        btn_add_terminator.clicked.connect(self.parent().handle_add_terminator)
-        btn_add_io.clicked.connect(self.parent().handle_add_io)
-
-        # Save and Load buttons
-        btn_save = QtWidgets.QPushButton("Save", self)
-        btn_load = QtWidgets.QPushButton("Load", self)
-        
-        btn_save.clicked.connect(self.parent().handle_save)
-        btn_load.clicked.connect(self.parent().handle_load)
-
         layout.addWidget(btn_save)
         layout.addWidget(btn_load)
 
 class Area(QtWidgets.QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent: Window):
         super().__init__(parent)
+        self.arrow_color = QtGui.QColor('black')
+        self.arrow_width = 3
         self.arrow_start = None
         self.arrow_end = None
-        self.shapes = []
-        self.arrows = []
+        self.shapes: List[Shape] = []
+        self.arrows: List[Shape] = []
         self.active_shape = None
         self.setMouseTracking(True)
     
-    def add_shape(self, shape: QtWidgets.QWidget):
-        shape.move(self.width() // 2 - shape.width() // 2, self.height() // 2 - shape.height() // 2)  # Center the shape on area
-        self.shapes.append(shape)
-        shape.show()
-        self.update()  # Trigger repaint
-    
+    def mouseMoveEvent(self, event):
+        mouse_pos = event.pos()
+        # Handle moving of shape or creation of arrow
+        if self.active_shape and not self.active_shape.locked:
+            delta = mouse_pos - self.drag_start
+            new_pos = self.shape_start_pos + delta
+            self.active_shape.move(new_pos)
+        elif self.arrow_start:
+            self.arrow_end = mouse_pos
+
+        # Handle hovering over nodes
+        self.active_shape = None
+        for shape in self.shapes:
+            if shape.geometry().contains(mouse_pos):
+                self.active_shape = shape
+                shape.has_active_node(mouse_pos)
+
+        self.update()
+        
     def mousePressEvent(self, event):
         if event.button() != QtCore.Qt.LeftButton:
             return  # Only process left mouse clicks
@@ -210,26 +217,6 @@ class Area(QtWidgets.QWidget):
 
         self.update()  # Trigger a repaint after removal
 
-    def mouseMoveEvent(self, event):
-        mouse_pos = event.pos()
-            
-        # Handle moving of shape or creation of arrow
-        if self.active_shape and not self.active_shape.locked:
-            delta = mouse_pos - self.drag_start
-            new_pos = self.shape_start_pos + delta
-            self.active_shape.move(new_pos)
-        elif self.arrow_start:
-            self.arrow_end = mouse_pos
-
-        # Handle hovering over nodes
-        self.active_shape = None
-        for shape in self.shapes:
-            if shape.geometry().contains(mouse_pos):
-                self.active_shape = shape
-                shape.has_active_node(mouse_pos)
-
-        self.update()  # Trigger a repaint
-
     def mouseReleaseEvent(self, event):
         # Handle creation of arrow between two nodes
         if self.arrow_start and self.active_shape and self.active_shape.active_node:
@@ -249,9 +236,10 @@ class Area(QtWidgets.QWidget):
         self.update()
 
     def paintEvent(self, event):
+        super().paintEvent(event)
         # Render arrows
         with QtGui.QPainter(self) as painter:
-            pen = QtGui.QPen(QtCore.Qt.black, 2)
+            pen = QtGui.QPen(self.arrow_color, self.arrow_width)
             painter.setPen(pen)
             
             if self.arrow_start and self.arrow_end:
@@ -260,6 +248,8 @@ class Area(QtWidgets.QWidget):
 
             for arrow in self.arrows:
                 arrow.update()
+                
+
 
     def save_to_diagram_data(self) -> DiagramData:
         shapes_data = []
@@ -294,7 +284,7 @@ class Area(QtWidgets.QWidget):
         
         return DiagramData(shapes=shapes_data, arrows=arrows_data)
     
-    def load_from_diagram_data(self, diagram_data: DiagramData):
+    def load_from_diagram_data(self, diagram_data: DiagramData) -> None:
         # Clear existing shapes and arrows
         for shape in self.shapes:
             shape.deleteLater()
@@ -323,7 +313,11 @@ class Area(QtWidgets.QWidget):
             self.arrows.append(new_arrow)
             new_arrow.show()
         
-        self.update() # Needs re-rendering
+    def add_shape(self, shape: QtWidgets.QWidget) -> None:
+        shape.move(self.width() // 2 - shape.width() // 2, self.height() // 2 - shape.height() // 2)  # Center the shape on area
+        self.shapes.append(shape)
+        shape.show()
+        self.update()  # Trigger repaint
 
 class Node:
     def __init__(self, parent: QtWidgets.QWidget, qpoint: QtCore.QPoint):
@@ -337,40 +331,46 @@ class Node:
         return self.qpoint + QtCore.QPoint(self.parent.width() // 2, self.parent.height() // 2) + self.parent.pos()
 
 class Shape(QtWidgets.QWidget):
-    def __init__(self, parent: Window, width, height, node_positions: List[QtCore.QPoint], node_radius: int):
+    def __init__(self, parent: QtWidgets.QWidget, width: int, height: int, node_positions: List[QtCore.QPoint], node_radius: int):
         super().__init__(parent)
         self.locked = True
-        self.active_node = None
-        self.nodes = []
-        self.text = "enter text"
-        self.node_radius = node_radius
-        self.show_cross = False
-        self.cross_rect = QtCore.QRect(1, 1, 10, 10)  # Define the cross area as a QRect
-
+        self.active_node: Node = None
+        self.nodes: List[Node] = []
         for node_position in node_positions:
             self.nodes.append(Node(self, node_position))
-        
+        self.text = ""
+        self.node_radius = node_radius
+        self.show_cross = False
+        self.text_type = "Arial"
+        self.text_color = QtGui.QColor('black')
+        self.text_size = 12
+        self.text_pen_size = 2
+        self.cross_color = QtGui.QColor('red')
+        self.cross_pen_size = 2
+        self.cross_rect = QtCore.QRect(1, 1, 10, 10)  # Define the cross as a QRect
         self.setFixedSize(width + node_radius * 2, height + node_radius * 2)
         self.setMouseTracking(True)
-    
+
     def paintEvent(self, event):
-        # Render cross if active
+        # Render the cross
         if self.show_cross:
             with QtGui.QPainter(self) as painter:
-                pen = QtGui.QPen(QtCore.Qt.red, 2)
+                pen = QtGui.QPen(self.cross_color, self.cross_pen_size)
                 painter.setPen(pen)
                 # Use cross_rect to draw the cross
                 painter.drawLine(self.cross_rect.topLeft(), self.cross_rect.bottomRight())
                 painter.drawLine(self.cross_rect.topRight(), self.cross_rect.bottomLeft())
-        
-        # Render the text in the center of the shape
+                
+        # Render the text
         if self.text:
             with QtGui.QPainter(self) as painter:
-                painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
-                painter.setFont(QtGui.QFont("Arial", 14))  # Adjust font if necessary
+                pen = QtGui.QPen(self.text_color, self.text_pen_size)
+                painter.setPen(pen)                
+                painter.setFont(QtGui.QFont(self.text_type, self.text_size))
+                # Draw the text in the center of the shape
                 text_rect = QtCore.QRect(0, 0, self.width(), self.height())
                 painter.drawText(text_rect, QtCore.Qt.AlignCenter, self.text)
-        
+                
         # Render the nodes
         for node in self.nodes:
             with QtGui.QPainter(self) as painter:
@@ -382,12 +382,13 @@ class Shape(QtWidgets.QWidget):
                 painter.drawEllipse(node.get_parent_position(), self.node_radius, self.node_radius)
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
-            # Set the shape's text, looks bad but works
-            text, ok = QtWidgets.QInputDialog.getText(self, "Input Text", "Enter text for the shape:")
-            if ok and text:
-                self.text = text
-                self.update()
+        if event.button() != QtCore.Qt.LeftButton:
+            return  # Only process left mouse clicks
+
+        text, ok = QtWidgets.QInputDialog.getText(self, "Set Text", "Enter text for the shape:")
+        if ok and text:
+            self.text = text
+            self.update()
     
     def leaveEvent(self, event):
         # Reset the active node and hide the cross when the mouse leaves the shape
@@ -414,103 +415,112 @@ class Shape(QtWidgets.QWidget):
 
 class Decision(Shape):
     def __init__(self, parent):
-        width = 130
-        height = 130 
-        node_positions = [
-            QtCore.QPoint(-65, 0),  # Left
-            QtCore.QPoint(65, 0),   # Right
-            QtCore.QPoint(0, 65),   # Bottom
-            QtCore.QPoint(0, -65)   # Top
-        ]
-        node_radius = 8
-        super().__init__(parent, width, height, node_positions, node_radius)
+        super().__init__(parent, 130, 130, [
+            QtCore.QPoint(-65, 0),
+            QtCore.QPoint(65, 0),
+            QtCore.QPoint(0, 65),
+            QtCore.QPoint(0, -65)
+        ], 8)
+        
+        self.pen_color = QtGui.QColor('black')
+        self.pen_width = 2
+        self.background_color = QtGui.QColor(255, 255, 255)
 
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
-            painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
-            painter.setBrush(QtGui.QColor(255, 255, 255))
+            pen = QtGui.QPen(self.pen_color, self.pen_width)
+            painter.setPen(pen)
+            painter.setBrush(self.background_color)
+            
+            # Draw a diamond shape
             center_x = self.width() // 2
             center_y = self.height() // 2
-            # Draw a diamond shape
             points = [
                 QtCore.QPoint(center_x, center_y - 65),
                 QtCore.QPoint(center_x + 65, center_y),
                 QtCore.QPoint(center_x, center_y + 65),
                 QtCore.QPoint(center_x - 65, center_y) 
             ]
-            painter.drawPolygon(QtGui.QPolygon(points))  # Diamond (Decision)
+            painter.drawPolygon(QtGui.QPolygon(points))
             
-        super().paintEvent(event)  # Render the nodes
+        super().paintEvent(event)  # Render the nodes last to avoid overlap
 
 class Terminator(Shape):
     def __init__(self, parent):
-        width = 130
-        height = 80
-        node_positions = [
+        super().__init__(parent, 130, 80, [
             QtCore.QPoint(-65, 0),
             QtCore.QPoint(65, 0),  
             QtCore.QPoint(0, 40),  
             QtCore.QPoint(0, -40)
-        ]
-        node_radius = 8
-        super().__init__(parent, width, height, node_positions, node_radius)
+        ], 8)
+        
+        self.pen_color = QtGui.QColor('black')
+        self.pen_width = 2
+        self.background_color = QtGui.QColor(255, 255, 255)
 
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
-            painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
-            painter.setBrush(QtGui.QColor(255, 255, 255))
+            pen = QtGui.QPen(self.pen_color, self.pen_width)
+            painter.setPen(pen)
+            painter.setBrush(self.background_color)
+            
+            # Draw an oval shape
             center_x = self.width() // 2
             center_y = self.height() // 2
-            # Draw an oval (capsule) shape
             painter.drawRoundedRect(center_x - 65, center_y - 40, 130, 80, 40, 40)
             
-        super().paintEvent(event)  # Render the nodes
+        super().paintEvent(event)  # Render the nodes last to avoid overlap
 
 class Process(Shape):
     def __init__(self, parent):
-        width = 130
-        height = 80
-        node_positions = [
+        super().__init__(parent, 130, 80, [
             QtCore.QPoint(-65, 0),
             QtCore.QPoint(65, 0),
             QtCore.QPoint(0, 40),
             QtCore.QPoint(0, -40)
-        ]
-        node_radius = 8
-        super().__init__(parent, width, height, node_positions, node_radius)
+        ], 8)
+        
+        self.pen_color = QtGui.QColor('black')
+        self.pen_width = 2
+        self.background_color = QtGui.QColor(255, 255, 255)
 
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
-            painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
-            painter.setBrush(QtGui.QColor(255, 255, 255))
+            pen = QtGui.QPen(self.pen_color, self.pen_width)
+            painter.setPen(pen)
+            painter.setBrush(self.background_color)
+            
+            # Draw a rectangle shape
             center_x = self.width() // 2
             center_y = self.height() // 2
-            # Draw a rectangle (Process)
             painter.drawRect(center_x - 65, center_y - 40, 130, 80)
             
-        super().paintEvent(event)  # Render the nodes
+        super().paintEvent(event)  # Render the nodes last to avoid overlap
+
+            
 
 class IO(Shape):
     def __init__(self, parent):
-        width = 130
-        height = 80
-        # Adjust node positions to the middle of each side of the parallelogram
-        node_positions = [
+        super().__init__(parent, 130, 80, [
             QtCore.QPoint(0, -40),
             QtCore.QPoint(60, 0),
             QtCore.QPoint(0, 40),
             QtCore.QPoint(-60, 0)
-        ]
-        node_radius = 8
-        super().__init__(parent, width, height, node_positions, node_radius)
+        ], 8)
+        
+        self.pen_color = QtGui.QColor('black')
+        self.pen_width = 2
+        self.background_color = QtGui.QColor(255, 255, 255)
 
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
-            painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
-            painter.setBrush(QtGui.QColor(255, 255, 255))
+            pen = QtGui.QPen(self.pen_color, self.pen_width)
+            painter.setPen(pen)
+            painter.setBrush(self.background_color)
+            
+            # Draw a parallelogram shape
             center_x = self.width() // 2
             center_y = self.height() // 2
-            # Draw a parallelogram leaning the other way
             points = [
                 QtCore.QPoint(center_x - 55, center_y - 40),
                 QtCore.QPoint(center_x + 65, center_y - 40),
@@ -519,20 +529,22 @@ class IO(Shape):
             ]
             painter.drawPolygon(QtGui.QPolygon(points))
             
-        super().paintEvent(event)  # Render the nodes
+        super().paintEvent(event)  # Render the nodes last to avoid overlap
 
 class Arrow(QtWidgets.QWidget):
-    def __init__(self, parent, start_position: Node, end_position: Node):
+    def __init__(self, parent: QtWidgets.QWidget, start_position: Node, end_position: Node):
         super().__init__(parent)
         self.start = start_position
         self.end = end_position
+        self.pen_color = QtGui.QColor('black')
+        self.pen_width = 3
         self.arrow_size = 15
-        self.setFixedSize(parent.size())
+        self.setFixedSize(self.parent().size())
         self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents) 
         
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
-            pen = QtGui.QPen(QtGui.QColor('black'), 3)
+            pen = QtGui.QPen(self.pen_color, self.pen_width)
             painter.setPen(pen)
 
             # Get the positions of the start and end points
@@ -558,6 +570,9 @@ class Arrow(QtWidgets.QWidget):
             # Draw the arrowhead using two lines that meet at the endpoint
             painter.drawLine(end_pos, left_arrowhead)
             painter.drawLine(end_pos, right_arrowhead)
+        
+        # Resize to match the parent size
+        self.setFixedSize(self.parent().size())
 
     def contains_node(self, node: Node) -> bool:
         return node == self.start or node == self.end        
@@ -580,7 +595,7 @@ class Arrow(QtWidgets.QWidget):
             return False
         distance = numerator / denominator
         
-        # Check if the mouse is close enough to the line (within threshold)
+        # Check if the mouse is close enough to the line
         return distance <= threshold
 
 if __name__ == "__main__":
