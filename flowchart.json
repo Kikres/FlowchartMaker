@@ -1,0 +1,62 @@
+{
+    "shapes": [
+        {
+            "shape_type": "Decision",
+            "x": 145,
+            "y": 55,
+            "width": 146,
+            "height": 146,
+            "text": "enter text"
+        },
+        {
+            "shape_type": "IO",
+            "x": 118,
+            "y": 372,
+            "width": 146,
+            "height": 96,
+            "text": "enter text"
+        },
+        {
+            "shape_type": "Process",
+            "x": 482,
+            "y": 367,
+            "width": 146,
+            "height": 96,
+            "text": "enter text"
+        },
+        {
+            "shape_type": "Terminator",
+            "x": 491,
+            "y": 90,
+            "width": 146,
+            "height": 96,
+            "text": "enter text"
+        }
+    ],
+    "arrows": [
+        {
+            "start_shape_index": 2,
+            "start_node_index": 3,
+            "end_shape_index": 3,
+            "end_node_index": 2
+        },
+        {
+            "start_shape_index": 0,
+            "start_node_index": 1,
+            "end_shape_index": 3,
+            "end_node_index": 0
+        },
+        {
+            "start_shape_index": 0,
+            "start_node_index": 2,
+            "end_shape_index": 1,
+            "end_node_index": 0
+        },
+        {
+            "start_shape_index": 1,
+            "start_node_index": 1,
+            "end_shape_index": 2,
+            "end_node_index": 0
+        }
+    ]
+}

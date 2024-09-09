@@ -1,3 +1,4 @@
+import json
 import math
 from dataclasses import dataclass
 from typing import List
@@ -9,6 +10,22 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPainter, QPen, QBrush, QColor
 from PySide6.QtCore import Qt, QPoint, QRect
 from models.event_bus import EventBus
+
+@dataclass
+class ShapeData:
+    shape_type: str
+    x: int
+    y: int
+    width: int
+    height: int
+    text: str
+
+@dataclass
+class ArrowData:
+    start_shape_index: int
+    start_node_index: int
+    end_shape_index: int
+    end_node_index: int
 
 class FlowchartEditor:
     def __init__(self, event_bus: EventBus):
@@ -23,6 +40,14 @@ class FlowchartEditor:
         self.window.setWindowTitle("Flowchart Proof of Concept")
         self.window.show()
         
+    def handle_load(self):
+        print("Load event sent to bus")
+        pass
+    
+    def handle_save(self):
+        print("Save event sent to bus")
+        pass        
+    
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -59,13 +84,15 @@ class Window(QMainWindow):
         new_shape = IO(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
         
-    def handle_load(self):
-        print("Load event sent to bus")
-        pass
-        
     def handle_save(self):
-        print("Save event sent to bus")
-        pass
+        file_path = "flowchart.json"  # You can use a file dialog for dynamic paths
+        print(self.flowchart_area.save_to_json(file_path))
+        print("Flowchart saved to", file_path)
+
+    def handle_load(self):
+        file_path = "flowchart.json"  # You can use a file dialog for dynamic paths
+        self.flowchart_area.load_from_json(file_path)
+        print("Flowchart loaded from", file_path)
         
 class Toolbar(QWidget):
     def __init__(self, parent: Window):
@@ -217,6 +244,80 @@ class Area(QWidget):
             if arrow.is_mouse_on_line(mouse_pos):
                 self.arrows.remove(arrow)
                 arrow.deleteLater()
+                
+    def save_to_json(self, file_path):
+        shapes_data = []
+        arrows_data = []
+        
+        # Convert shapes to simpler classes
+        for shape in self.shapes:
+            shape_data = ShapeData(
+                shape_type=shape.__class__.__name__,  # Name of the class (Process, Decision, etc.)
+                x=shape.pos().x(),
+                y=shape.pos().y(),
+                width=shape.width(),
+                height=shape.height(),
+                text=shape.text
+            )
+            shapes_data.append(shape_data)
+        
+        # Convert arrows to simpler classes
+        for arrow in self.arrows:
+            start_shape_index = self.shapes.index(arrow.start.parent)  # Shape index
+            start_node_index = arrow.start.parent.nodes.index(arrow.start)  # Node index in shape
+            end_shape_index = self.shapes.index(arrow.end.parent)
+            end_node_index = arrow.end.parent.nodes.index(arrow.end)
+            
+            arrow_data = ArrowData(
+                start_shape_index=start_shape_index,
+                start_node_index=start_node_index,
+                end_shape_index=end_shape_index,
+                end_node_index=end_node_index
+            )
+            arrows_data.append(arrow_data)
+        
+        # Save shapes and arrows as JSON
+        data = {
+            "shapes": [shape.__dict__ for shape in shapes_data],
+            "arrows": [arrow.__dict__ for arrow in arrows_data]
+        }
+        
+        with open(file_path, "w") as file:
+            json.dump(data, file, indent=4)
+    
+    def load_from_json(self, file_path):
+        with open(file_path, "r") as file:
+            data = json.load(file)
+        
+        # Clear current shapes and arrows
+        for shape in self.shapes:
+            shape.deleteLater()
+        for arrow in self.arrows:
+            arrow.deleteLater()
+        self.shapes.clear()
+        self.arrows.clear()
+        
+        # Recreate shapes from data
+        for shape_data in data['shapes']:
+            shape_class = globals()[shape_data['shape_type']]  # Get the class by name (Process, Decision, etc.)
+            new_shape = shape_class(self)
+            new_shape.move(shape_data['x'], shape_data['y'])
+            new_shape.resize(shape_data['width'], shape_data['height'])
+            new_shape.text = shape_data['text']
+            self.add_shape(new_shape)
+        
+        # Recreate arrows from data
+        for arrow_data in data['arrows']:
+            start_shape = self.shapes[arrow_data['start_shape_index']]
+            start_node = start_shape.nodes[arrow_data['start_node_index']]
+            end_shape = self.shapes[arrow_data['end_shape_index']]
+            end_node = end_shape.nodes[arrow_data['end_node_index']]
+            
+            new_arrow = Arrow(self, start_node, end_node)
+            self.arrows.append(new_arrow)
+            new_arrow.show()
+        
+        self.update()
             
 class Node:
     def __init__(self, parent: QWidget, qpoint: QPoint):
@@ -308,7 +409,7 @@ class Shape(QWidget):
 class Decision(Shape):
     def __init__(self, parent):
         width = 130
-        height = 130  # A diamond is usually square
+        height = 130 
         node_positions = [
             QPoint(-65, 0),  # Left
             QPoint(65, 0),   # Right
@@ -325,10 +426,10 @@ class Decision(Shape):
             center_y = self.height() // 2
             # Draw a diamond shape
             points = [
-                QPoint(center_x, center_y - 65),  # Top
-                QPoint(center_x + 65, center_y),  # Right
-                QPoint(center_x, center_y + 65),  # Bottom
-                QPoint(center_x - 65, center_y)   # Left
+                QPoint(center_x, center_y - 65),
+                QPoint(center_x + 65, center_y),
+                QPoint(center_x, center_y + 65),
+                QPoint(center_x - 65, center_y) 
             ]
             painter.drawPolygon(QtGui.QPolygon(points))  # Diamond (Decision)
             
@@ -339,10 +440,10 @@ class Terminator(Shape):
         width = 130
         height = 80
         node_positions = [
-            QPoint(-65, 0),  # Left
-            QPoint(65, 0),   # Right
-            QPoint(0, 40),   # Bottom
-            QPoint(0, -40)   # Top
+            QPoint(-65, 0),
+            QPoint(65, 0),  
+            QPoint(0, 40),  
+            QPoint(0, -40)
         ]
         node_radius = 8
         super().__init__(parent, width, height, node_positions, node_radius)
@@ -362,10 +463,10 @@ class Process(Shape):
         width = 130
         height = 80
         node_positions = [
-            QPoint(-65, 0),  # Left
-            QPoint(65, 0),   # Right
-            QPoint(0, 40),   # Bottom
-            QPoint(0, -40)   # Top
+            QPoint(-65, 0),
+            QPoint(65, 0),
+            QPoint(0, 40),
+            QPoint(0, -40)
         ]
         node_radius = 8
         super().__init__(parent, width, height, node_positions, node_radius)
@@ -386,10 +487,10 @@ class IO(Shape):
         height = 80
         # Adjust node positions to the middle of each side of the parallelogram
         node_positions = [
-            QPoint(0, -40),   # Top side center
-            QPoint(60, 0),     # Right side center
-            QPoint(0, 40),    # Bottom side center
-            QPoint(-60, 0)     # Left side center
+            QPoint(0, -40),
+            QPoint(60, 0),
+            QPoint(0, 40),
+            QPoint(-60, 0)
         ]
         node_radius = 8
         super().__init__(parent, width, height, node_positions, node_radius)
@@ -401,10 +502,10 @@ class IO(Shape):
             center_y = self.height() // 2
             # Draw a parallelogram leaning the other way
             points = [
-                QPoint(center_x - 55, center_y - 40),  # Top left
-                QPoint(center_x + 65, center_y - 40),  # Top right
-                QPoint(center_x + 55, center_y + 40),  # Bottom right
-                QPoint(center_x - 65, center_y + 40)   # Bottom left
+                QPoint(center_x - 55, center_y - 40),
+                QPoint(center_x + 65, center_y - 40),
+                QPoint(center_x + 55, center_y + 40),
+                QPoint(center_x - 65, center_y + 40) 
             ]
             painter.drawPolygon(QtGui.QPolygon(points))
             
