@@ -428,6 +428,7 @@ class Decision(Shape):
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
             painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
+            painter.setBrush(QtGui.QColor(255, 255, 255))
             center_x = self.width() // 2
             center_y = self.height() // 2
             # Draw a diamond shape
@@ -457,6 +458,7 @@ class Terminator(Shape):
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
             painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
+            painter.setBrush(QtGui.QColor(255, 255, 255))
             center_x = self.width() // 2
             center_y = self.height() // 2
             # Draw an oval (capsule) shape
@@ -480,6 +482,7 @@ class Process(Shape):
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
             painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
+            painter.setBrush(QtGui.QColor(255, 255, 255))
             center_x = self.width() // 2
             center_y = self.height() // 2
             # Draw a rectangle (Process)
@@ -504,6 +507,7 @@ class IO(Shape):
     def paintEvent(self, event):
         with QtGui.QPainter(self) as painter:
             painter.setPen(QtGui.QPen(QtCore.Qt.black, 2))
+            painter.setBrush(QtGui.QColor(255, 255, 255))
             center_x = self.width() // 2
             center_y = self.height() // 2
             # Draw a parallelogram leaning the other way
