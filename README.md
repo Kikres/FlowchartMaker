@@ -30,7 +30,7 @@ A desktop application for creating and managing flowcharts with common flowchart
 To run the application, use the following command:
 
 ```
-python main.py
+python app.py
 ```
 
 ## Functionality
