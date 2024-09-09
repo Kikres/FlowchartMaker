@@ -533,8 +533,35 @@ class Arrow(QtWidgets.QWidget):
         with QtGui.QPainter(self) as painter:
             pen = QtGui.QPen(QtGui.QColor('black'), 3)
             painter.setPen(pen)
-            painter.drawLine(self.mapToParent(self.start.get_global_position()), self.end.get_global_position())
+            
+            # Get the positions of the start and end points
+            start_pos = self.mapToParent(self.start.get_global_position())
+            end_pos = self.end.get_global_position()
     
+            # Draw the main line
+            painter.drawLine(start_pos, end_pos)
+    
+            # Calculate the direction vector of the line
+            direction = QtCore.QLineF(start_pos, end_pos)
+            angle = math.atan2(end_pos.y() - start_pos.y(), end_pos.x() - start_pos.x())  # Get the angle in radians
+    
+            # Length of the arrowhead lines
+            arrow_size = 15
+    
+            # Calculate the arrowhead points using math.sin and math.cos
+            left_arrowhead = QtCore.QPointF(
+                end_pos.x() - arrow_size * math.cos(angle + math.radians(30)),
+                end_pos.y() - arrow_size * math.sin(angle + math.radians(30))
+            )
+            right_arrowhead = QtCore.QPointF(
+                end_pos.x() - arrow_size * math.cos(angle - math.radians(30)),
+                end_pos.y() - arrow_size * math.sin(angle - math.radians(30))
+            )
+    
+            # Draw the arrowhead using two lines that meet at the endpoint
+            painter.drawLine(end_pos, left_arrowhead)
+            painter.drawLine(end_pos, right_arrowhead)
+
     def contains_node(self, node: Node) -> bool:
         return node == self.start or node == self.end        
     
