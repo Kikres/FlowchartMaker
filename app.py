@@ -1,7 +1,7 @@
 import sys
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import List, cast
 from PySide6 import QtCore, QtWidgets, QtGui
 
@@ -35,8 +35,7 @@ class Serializer:
     def save_to_file(diagram_data: DiagramData, file_path: str) -> None:
         try:
             with open(file_path, "w") as file:
-                json.dump(diagram_data.__dict__, file, default=lambda o: o.__dict__, indent=4)
-            print(f"Flowchart saved to {file_path}")
+                json.dump(asdict(diagram_data), file, indent=4)
         except IOError as e:
             print(f"Error saving file: {e}")
 
@@ -64,15 +63,19 @@ class FlowchartEditor:
         self.window.setWindowTitle("Flowchart Proof of Concept")
         self.window.show()
 
-    def handle_save(self, diagram_data: DiagramData):
-        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.window, "Save Flowchart", "", "JSON Files (*.json);;All Files (*)")
+    def handle_save(self, diagram_data: DiagramData) -> None:
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.window, "Save Flowchart", "", "JSON Files (*.json)")
         if file_path:
             Serializer.save_to_file(diagram_data, file_path)
 
-    def handle_load(self):
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self.window, "Load Flowchart", "", "JSON Files (*.json);;All Files (*)")
+    def handle_load(self) -> DiagramData:
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self.window, "Load Flowchart", "", "JSON Files (*.json)")
         if file_path:
-            return Serializer.load_from_file(file_path)
+            diagram_data = Serializer.load_from_file(file_path)
+            if diagram_data:
+                return diagram_data
+            else:
+                QtWidgets.QMessageBox.warning(self.window, "Error", "Failed to load file. Please check the format.")
         return None
 
 
@@ -92,27 +95,27 @@ class Window(QtWidgets.QMainWindow):
         layout.addWidget(self.flowchart_area, stretch=5)
         layout.addWidget(self.toolbar, stretch=1)
 
-    def handle_add_process(self):
+    def handle_add_process(self) -> None:
         new_shape = Process(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def handle_add_decision(self):
+    def handle_add_decision(self) -> None:
         new_shape = Decision(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def handle_add_terminator(self):
+    def handle_add_terminator(self) -> None:
         new_shape = Terminator(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def handle_add_io(self):
+    def handle_add_io(self) -> None:
         new_shape = IO(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
 
-    def handle_save(self):
+    def handle_save(self) -> None:
         diagram_data = self.flowchart_area.save_to_diagram_data()
         self.editor.handle_save(diagram_data)
 
-    def handle_load(self):
+    def handle_load(self) -> None:
         diagram_data = self.editor.handle_load()
         if diagram_data:
             self.flowchart_area.load_from_diagram_data(diagram_data)
@@ -147,6 +150,12 @@ class Toolbar(QtWidgets.QWidget):
 class Area(QtWidgets.QWidget):
     def __init__(self, parent: Window):
         super().__init__(parent)
+        self.shape_mapping = {
+            'Process': Process,
+            'Decision': Decision,
+            'Terminator': Terminator,
+            'IO': IO
+        }
         self.arrow_color = QtGui.QColor('black')
         self.arrow_width = 3
         self.arrow_start = None
@@ -178,59 +187,37 @@ class Area(QtWidgets.QWidget):
     def mousePressEvent(self, event):
         if event.button() != QtCore.Qt.LeftButton:
             return  # Only process left mouse clicks
-        
+
         if self.active_shape:
             mouse_pos = event.pos()
-            
-            # Handle deletion of shape, ensuring all arrows connected to the shape are deleted
+
             if self.active_shape.on_cross(mouse_pos):
-                self.shapes.remove(self.active_shape)
-                self.active_shape.deleteLater()
-
-                # Collect arrows to delete
-                arrows_to_delete = [arrow for arrow in self.arrows if any(arrow.contains_node(node) for node in self.active_shape.nodes)]
-
-                # Delete all arrows connected to the shape
-                for arrow in arrows_to_delete:
-                    arrow.deleteLater()
-                    self.arrows.remove(arrow)
-
-                self.active_shape = None
+                self.handle_shape_deletion()
                 return
 
-            # Handle creation of arrow
             if self.active_shape.active_node:
-                self.arrow_start = self.active_shape.active_node
-                self.arrow_end = mouse_pos  # Set temporary end position
+                self.handle_arrow_creation(mouse_pos)
                 return
 
-            # Handle moving of shape
-            if not self.active_shape.active_node:
-                self.drag_start = mouse_pos
-                self.shape_start_pos = self.active_shape.pos()
-                self.active_shape.locked = False
-                self.active_shape.raise_()  # Bring the shape to the front
-                self.shapes.remove(self.active_shape)
-                self.shapes.append(self.active_shape)
-                
+            self.handle_shape_movement(mouse_pos)
+
         self.update()
-        
+
+
+
     def mouseDoubleClickEvent(self, event):
         # Handle removal of arrows on double-click
         mouse_pos = event.pos()
         arrows_to_remove = []
 
-        # Check if the mouse is over any arrows
         for arrow in self.arrows:
             if arrow.is_mouse_on_line(mouse_pos):
                 arrows_to_remove.append(arrow)
-
-        # Remove the arrows
         for arrow in arrows_to_remove:
             self.arrows.remove(arrow)
             arrow.deleteLater()
 
-        self.update()  # Trigger a repaint after removal
+        self.update()
 
     def mouseReleaseEvent(self, event):
         # Handle creation of arrow between two nodes
@@ -264,7 +251,30 @@ class Area(QtWidgets.QWidget):
             for arrow in self.arrows:
                 arrow.update()
                 
+    def handle_shape_deletion(self) -> None:
+        self.shapes.remove(self.active_shape)
+        self.active_shape.deleteLater()
 
+        # Collect and delete arrows connected to the shape
+        arrows_to_delete = [arrow for arrow in self.arrows if any(arrow.contains_node(node) for node in self.active_shape.nodes)]
+
+        for arrow in arrows_to_delete:
+            arrow.deleteLater()
+            self.arrows.remove(arrow)
+
+        self.active_shape = None
+
+    def handle_arrow_creation(self, mouse_pos) -> None:
+        self.arrow_start = self.active_shape.active_node
+        self.arrow_end = mouse_pos  # Set temporary end position
+
+    def handle_shape_movement(self, mouse_pos) -> None:
+        self.drag_start = mouse_pos
+        self.shape_start_pos = self.active_shape.pos()
+        self.active_shape.locked = False
+        self.active_shape.raise_()  # Bring the shape to the front
+        self.shapes.remove(self.active_shape)
+        self.shapes.append(self.active_shape)
 
     def save_to_diagram_data(self) -> DiagramData:
         shapes_data = []
@@ -300,22 +310,17 @@ class Area(QtWidgets.QWidget):
         return DiagramData(shapes=shapes_data, arrows=arrows_data)
     
     def load_from_diagram_data(self, diagram_data: DiagramData) -> None:
-        # Clear existing shapes and arrows
-        for shape in self.shapes:
-            shape.deleteLater()
-        for arrow in self.arrows:
-            arrow.deleteLater()
-        self.shapes.clear()
-        self.arrows.clear()
+        self.clear_all_shapes_and_arrows()
         
         # Create shapes from diagram data
         for shape_data in diagram_data.shapes:
-            shape_class = globals()[shape_data.shape_type]
-            new_shape = shape_class(self)
-            self.add_shape(new_shape)
-            new_shape.move(shape_data.x, shape_data.y)
-            new_shape.resize(shape_data.width, shape_data.height)
-            new_shape.text = shape_data.text
+            shape_class = self.shape_mapping.get(shape_data.shape_type)
+            if shape_class:
+                new_shape = shape_class(self)
+                self.add_shape(new_shape)
+                new_shape.move(shape_data.x, shape_data.y)
+                new_shape.resize(shape_data.width, shape_data.height)
+                new_shape.text = shape_data.text
         
         # Create arrows from diagram data
         for arrow_data in diagram_data.arrows:
@@ -332,17 +337,26 @@ class Area(QtWidgets.QWidget):
         shape.move(self.width() // 2 - shape.width() // 2, self.height() // 2 - shape.height() // 2)  # Center the shape on area
         self.shapes.append(shape)
         shape.show()
-        self.update()  # Trigger repaint
+        self.update()
+        
+    def clear_all_shapes_and_arrows(self) -> None:
+        for shape in self.shapes:
+            shape.deleteLater()
+        for arrow in self.arrows:
+            arrow.deleteLater()
+        self.shapes.clear()
+        self.arrows.clear()
+        self.update()
 
 class Node:
     def __init__(self, parent: QtWidgets.QWidget, qpoint: QtCore.QPoint):
         self.parent = parent
         self.qpoint = qpoint
         
-    def get_parent_position(self):
+    def get_parent_position(self) -> QtCore.QPoint:
         return self.qpoint + QtCore.QPoint(self.parent.width() // 2, self.parent.height() // 2)
     
-    def get_global_position(self):
+    def get_global_position(self) -> QtCore.QPoint:
         return self.qpoint + QtCore.QPoint(self.parent.width() // 2, self.parent.height() // 2) + self.parent.pos()
 
 class Shape(QtWidgets.QWidget):
@@ -367,34 +381,9 @@ class Shape(QtWidgets.QWidget):
         self.setMouseTracking(True)
 
     def paintEvent(self, event):
-        # Render the cross
-        if self.show_cross:
-            with QtGui.QPainter(self) as painter:
-                pen = QtGui.QPen(self.cross_color, self.cross_pen_size)
-                painter.setPen(pen)
-                # Use cross_rect to draw the cross
-                painter.drawLine(self.cross_rect.topLeft(), self.cross_rect.bottomRight())
-                painter.drawLine(self.cross_rect.topRight(), self.cross_rect.bottomLeft())
-                
-        # Render the text
-        if self.text:
-            with QtGui.QPainter(self) as painter:
-                pen = QtGui.QPen(self.text_color, self.text_pen_size)
-                painter.setPen(pen)                
-                painter.setFont(QtGui.QFont(self.text_type, self.text_size))
-                # Draw the text in the center of the shape
-                text_rect = QtCore.QRect(0, 0, self.width(), self.height())
-                painter.drawText(text_rect, QtCore.Qt.AlignCenter, self.text)
-                
-        # Render the nodes
-        for node in self.nodes:
-            with QtGui.QPainter(self) as painter:
-                painter.setPen(QtCore.Qt.NoPen)
-                if self.active_node == node:
-                    painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 0)))
-                else:
-                    painter.setBrush(QtCore.Qt.NoBrush)
-                painter.drawEllipse(node.get_parent_position(), self.node_radius, self.node_radius)
+        self.render_cross()
+        self.render_text()
+        self.render_nodes()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() != QtCore.Qt.LeftButton:
@@ -415,8 +404,37 @@ class Shape(QtWidgets.QWidget):
         # Show the cross when the mouse enters the shape
         self.show_cross = True
         self.update()
+        
+    def render_cross(self):
+        if self.show_cross:
+            with QtGui.QPainter(self) as painter:
+                pen = QtGui.QPen(self.cross_color, self.cross_pen_size)
+                painter.setPen(pen)
+                # Use cross_rect to draw the cross
+                painter.drawLine(self.cross_rect.topLeft(), self.cross_rect.bottomRight())
+                painter.drawLine(self.cross_rect.topRight(), self.cross_rect.bottomLeft())
 
-    def has_active_node(self, mouse_pos):
+    def render_text(self):
+        if self.text:
+            with QtGui.QPainter(self) as painter:
+                pen = QtGui.QPen(self.text_color, self.text_pen_size)
+                painter.setPen(pen)
+                painter.setFont(QtGui.QFont(self.text_type, self.text_size))
+                # Draw the text in the center of the shape
+                text_rect = QtCore.QRect(0, 0, self.width(), self.height())
+                painter.drawText(text_rect, QtCore.Qt.AlignCenter, self.text)
+
+    def render_nodes(self):
+        for node in self.nodes:
+            with QtGui.QPainter(self) as painter:
+                painter.setPen(QtCore.Qt.NoPen)
+                if self.active_node == node:
+                    painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 0)))  # Highlight active node
+                else:
+                    painter.setBrush(QtCore.Qt.NoBrush)
+                painter.drawEllipse(node.get_parent_position(), self.node_radius, self.node_radius)
+
+    def has_active_node(self, mouse_pos) -> Node:
         self.active_node = None
         for node in self.nodes:
             distance = math.hypot(mouse_pos.x() - node.get_global_position().x(), 
@@ -425,7 +443,7 @@ class Shape(QtWidgets.QWidget):
                 self.active_node = node
         return self.active_node
 
-    def on_cross(self, mouse_pos):
+    def on_cross(self, mouse_pos) -> bool:
         return self.cross_rect.contains(mouse_pos - self.pos())
 
 class Decision(Shape):
