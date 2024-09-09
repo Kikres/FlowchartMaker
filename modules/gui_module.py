@@ -26,6 +26,11 @@ class ArrowData:
     start_node_index: int
     end_shape_index: int
     end_node_index: int
+    
+@dataclass
+class DiagramData:
+    shapes: List[ShapeData]
+    arrows: List[ArrowData]
 
 class FlowchartEditor:
     def __init__(self, event_bus: EventBus):
@@ -52,7 +57,7 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Flowchart Creator")
-        self.setGeometry(100, 100, 1000, 600) # Initial window size
+        self.setGeometry(100, 100, 1000, 600)  # Initial window size
 
         # Set the main layout
         central_widget = QWidget()
@@ -64,10 +69,9 @@ class Window(QMainWindow):
         self.toolbar = Toolbar(self)
 
         # Add flowchart area to the left and toolbar to the right
-        layout.addWidget(self.flowchart_area, stretch=4)
+        layout.addWidget(self.flowchart_area, stretch=5)
         layout.addWidget(self.toolbar, stretch=1)
         
-        # Methods to add shapes to the flowchart area
     def handle_add_process(self):
         new_shape = Process(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
@@ -83,15 +87,26 @@ class Window(QMainWindow):
     def handle_add_io(self):
         new_shape = IO(self.flowchart_area)
         self.flowchart_area.add_shape(new_shape)
-        
+
     def handle_save(self):
-        file_path = "flowchart.json"  # You can use a file dialog for dynamic paths
-        print(self.flowchart_area.save_to_json(file_path))
+        diagram_data = self.flowchart_area.save_to_diagram_data()
+
+        file_path = "flowchart.json"
+        with open(file_path, "w") as file:
+            json.dump(diagram_data.__dict__, file, default=lambda o: o.__dict__, indent=4)
         print("Flowchart saved to", file_path)
 
     def handle_load(self):
-        file_path = "flowchart.json"  # You can use a file dialog for dynamic paths
-        self.flowchart_area.load_from_json(file_path)
+        file_path = "flowchart.json"
+        with open(file_path, "r") as file:
+            data = json.load(file)
+
+        diagram_data = DiagramData(
+            shapes=[ShapeData(**shape_data) for shape_data in data['shapes']],
+            arrows=[ArrowData(**arrow_data) for arrow_data in data['arrows']]
+        )
+
+        self.flowchart_area.load_from_diagram_data(diagram_data)
         print("Flowchart loaded from", file_path)
         
 class Toolbar(QWidget):
@@ -129,8 +144,8 @@ class Toolbar(QWidget):
 class Area(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.arrow_start = None  # Starting point for the arrow
-        self.arrow_end = None  # End point for the arrow
+        self.arrow_start = None
+        self.arrow_end = None
         self.shapes = []
         self.arrows = []
         self.active_shape = None
@@ -173,30 +188,28 @@ class Area(QWidget):
 
             # Handle moving of shape
             if not self.active_shape.active_node:
-                # Start moving the active shape
                 self.drag_start = mouse_pos
                 self.shape_start_pos = self.active_shape.pos()
                 self.active_shape.locked = False
                 self.active_shape.raise_()  # Bring the shape to the front
-                self.shapes.remove(self.active_shape)  # Remove the shape from its current position
-                self.shapes.append(self.active_shape)  # Add it back to the end of the list, so it's rendered last
+                self.shapes.remove(self.active_shape)
+                self.shapes.append(self.active_shape)
                 
         self.update()  # Trigger a repaint
 
     def mouseMoveEvent(self, event):
         mouse_pos = event.pos()
             
+        # Handle moving of shape or creation of arrow
         if self.active_shape and not self.active_shape.locked:
-            # Move the active shape
             delta = mouse_pos - self.drag_start
             new_pos = self.shape_start_pos + delta
             self.active_shape.move(new_pos)
         elif self.arrow_start:
-            # Update the temporary arrow's end position as the mouse moves
             self.arrow_end = mouse_pos
 
-        # Update the active shape and node under the mouse
-        self.active_shape = None  # Reset active shape
+        # Handle hovering over nodes
+        self.active_shape = None
         for shape in self.shapes:
             if shape.geometry().contains(mouse_pos):
                 self.active_shape = shape
@@ -205,15 +218,14 @@ class Area(QWidget):
         self.update()  # Trigger a repaint
 
     def mouseReleaseEvent(self, event):
-        # Check if an arrow was being drawn
+        # Handle creation of arrow between two nodes
         if self.arrow_start and self.active_shape and self.active_shape.active_node:
-            # Create an arrow between the two nodes if they are valid
             if self.active_shape.active_node != self.arrow_start:
                 arrow = Arrow(self, self.arrow_start, self.active_shape.active_node)
                 self.arrows.append(arrow)
                 arrow.show()
 
-        # Clear arrow and movement state after release
+        # Reset arrow and shape states
         self.arrow_start = None
         self.arrow_end = None
         if self.active_shape:
@@ -221,38 +233,29 @@ class Area(QWidget):
             self.shape_start_pos = None
             self.active_shape.locked = True
             
-        self.update()  # Trigger repaint to clear the temporary arrow
+        self.update()
 
     def paintEvent(self, event):
+        # Render arrows
         with QPainter(self) as painter:
             pen = QPen(Qt.black, 2)
             painter.setPen(pen)
             
-            # Draw the temporary arrow if it's being created
             if self.arrow_start and self.arrow_end:
                 start_pos = self.arrow_start.get_global_position()
                 painter.drawLine(start_pos, self.arrow_end)
 
-            # Draw all the permanent arrows
             for arrow in self.arrows:
-                arrow.update()  # Ensure arrows are drawn
+                arrow.update()
 
-    def mouseDoubleClickEvent(self, event):
-        mouse_pos = event.pos()
-        # Check if the mouse is over any arrows and remove them on double-click
-        for arrow in self.arrows:
-            if arrow.is_mouse_on_line(mouse_pos):
-                self.arrows.remove(arrow)
-                arrow.deleteLater()
-                
-    def save_to_json(self, file_path):
+    def save_to_diagram_data(self) -> DiagramData:
         shapes_data = []
         arrows_data = []
         
-        # Convert shapes to simpler classes
+        # Collect data for shapes
         for shape in self.shapes:
             shape_data = ShapeData(
-                shape_type=shape.__class__.__name__,  # Name of the class (Process, Decision, etc.)
+                shape_type=shape.__class__.__name__,
                 x=shape.pos().x(),
                 y=shape.pos().y(),
                 width=shape.width(),
@@ -261,10 +264,10 @@ class Area(QWidget):
             )
             shapes_data.append(shape_data)
         
-        # Convert arrows to simpler classes
+        # Collect data for arrows
         for arrow in self.arrows:
-            start_shape_index = self.shapes.index(arrow.start.parent)  # Shape index
-            start_node_index = arrow.start.parent.nodes.index(arrow.start)  # Node index in shape
+            start_shape_index = self.shapes.index(arrow.start.parent)
+            start_node_index = arrow.start.parent.nodes.index(arrow.start)
             end_shape_index = self.shapes.index(arrow.end.parent)
             end_node_index = arrow.end.parent.nodes.index(arrow.end)
             
@@ -276,20 +279,10 @@ class Area(QWidget):
             )
             arrows_data.append(arrow_data)
         
-        # Save shapes and arrows as JSON
-        data = {
-            "shapes": [shape.__dict__ for shape in shapes_data],
-            "arrows": [arrow.__dict__ for arrow in arrows_data]
-        }
-        
-        with open(file_path, "w") as file:
-            json.dump(data, file, indent=4)
+        return DiagramData(shapes=shapes_data, arrows=arrows_data)
     
-    def load_from_json(self, file_path):
-        with open(file_path, "r") as file:
-            data = json.load(file)
-        
-        # Clear current shapes and arrows
+    def load_from_diagram_data(self, diagram_data: DiagramData):
+        # Clear existing shapes and arrows
         for shape in self.shapes:
             shape.deleteLater()
         for arrow in self.arrows:
@@ -297,27 +290,27 @@ class Area(QWidget):
         self.shapes.clear()
         self.arrows.clear()
         
-        # Recreate shapes from data
-        for shape_data in data['shapes']:
-            shape_class = globals()[shape_data['shape_type']]  # Get the class by name (Process, Decision, etc.)
+        # Create shapes from diagram data
+        for shape_data in diagram_data.shapes:
+            shape_class = globals()[shape_data.shape_type]
             new_shape = shape_class(self)
-            new_shape.move(shape_data['x'], shape_data['y'])
-            new_shape.resize(shape_data['width'], shape_data['height'])
-            new_shape.text = shape_data['text']
             self.add_shape(new_shape)
+            new_shape.move(shape_data.x, shape_data.y)
+            new_shape.resize(shape_data.width, shape_data.height)
+            new_shape.text = shape_data.text
         
-        # Recreate arrows from data
-        for arrow_data in data['arrows']:
-            start_shape = self.shapes[arrow_data['start_shape_index']]
-            start_node = start_shape.nodes[arrow_data['start_node_index']]
-            end_shape = self.shapes[arrow_data['end_shape_index']]
-            end_node = end_shape.nodes[arrow_data['end_node_index']]
+        # Create arrows from diagram data
+        for arrow_data in diagram_data.arrows:
+            start_shape = self.shapes[arrow_data.start_shape_index]
+            start_node = start_shape.nodes[arrow_data.start_node_index]
+            end_shape = self.shapes[arrow_data.end_shape_index]
+            end_node = end_shape.nodes[arrow_data.end_node_index]
             
             new_arrow = Arrow(self, start_node, end_node)
             self.arrows.append(new_arrow)
             new_arrow.show()
         
-        self.update()
+        self.update() # Needs re-rendering
             
 class Node:
     def __init__(self, parent: QWidget, qpoint: QPoint):
@@ -336,9 +329,9 @@ class Shape(QWidget):
         self.locked = True
         self.active_node = None
         self.nodes = []
-        self.text = "enter text"  # Variable to store the text for the shape
+        self.text = "enter text"
         self.node_radius = node_radius
-        self.show_cross = False  # Flag to show or hide the cross
+        self.show_cross = False
         self.cross_rect = QRect(1, 1, 10, 10)  # Define the cross area as a QRect
 
         for node_position in node_positions:
@@ -348,16 +341,14 @@ class Shape(QWidget):
         self.setMouseTracking(True)
     
     def paintEvent(self, event):
-        super().paintEvent(event)
-        
         # Render cross if active
         if self.show_cross:
             with QPainter(self) as painter:
                 pen = QPen(Qt.red, 2)
                 painter.setPen(pen)
-                # Draw cross at (0, 0)
-                painter.drawLine(11, 1, 1, 11)
-                painter.drawLine(1, 1, 11, 11)
+                # Use cross_rect to draw the cross
+                painter.drawLine(self.cross_rect.topLeft(), self.cross_rect.bottomRight())
+                painter.drawLine(self.cross_rect.topRight(), self.cross_rect.bottomLeft())
         
         # Render the text in the center of the shape
         if self.text:
@@ -379,18 +370,20 @@ class Shape(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Open an input dialog to ask for text
-            text, ok = QInputDialog.getText(self, "Input Text", "Enter text for the shape:") # It looks so bad...
+            # Set the shape's text, looks bad but works
+            text, ok = QInputDialog.getText(self, "Input Text", "Enter text for the shape:")
             if ok and text:
-                self.text = text  # Set the shape's text
-                self.update()  # Trigger a repaint to show the new text
+                self.text = text
+                self.update()
     
     def leaveEvent(self, event):
+        # Reset the active node and hide the cross when the mouse leaves the shape
         self.active_node = None
         self.show_cross = False
         self.update()
         
     def enterEvent(self, event):
+        # Show the cross when the mouse enters the shape
         self.show_cross = True
         self.update()
 
@@ -405,6 +398,7 @@ class Shape(QWidget):
 
     def on_cross(self, mouse_pos):
         return self.cross_rect.contains(mouse_pos - self.pos())
+
         
 class Decision(Shape):
     def __init__(self, parent):
