@@ -15,7 +15,7 @@ A simple desktop application for creating and managing flowcharts with common fl
 1. Clone this repository:
 
    ```
-   git clone https://github.com/kikres/flowchart-creator.git
+   git clone https://github.com/kikres/FlowchartMaker.git
    cd flowchart-creator
    ```
 
