@@ -16,7 +16,7 @@ A simple desktop application for creating and managing flowcharts with common fl
 
    ```
    git clone https://github.com/kikres/FlowchartMaker.git
-   cd flowchart-creator
+   cd FlowchartMaker
    ```
 
 2. Install dependencies:
