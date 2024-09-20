@@ -1,4 +1,5 @@
 # FlowchartMaker
+3-day challenge project with an unfamiliar library.
 
 A simple desktop application for creating and managing flowcharts with common flowchart elements such as processes, decisions, terminators, and input/output symbols. You can connect these elements with arrows and save or load your flowcharts as JSON files. While it lacks some common functionality, this project effectively serves its purpose as a Python demo and showcases the essential concepts.
 
